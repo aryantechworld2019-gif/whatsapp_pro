@@ -7,14 +7,21 @@ import api from '../services/api';
 // ============================================================================
 
 /**
- * Generate unique IDs using modern API
- * Uses crypto.randomUUID() when available, falls back to timestamp + random
+ * Counter for generating unique IDs in the same millisecond
  */
-const generateId = () => {
+let idCounter = 0;
+
+/**
+ * Generate unique IDs using modern API
+ * Uses crypto.randomUUID() when available, falls back to timestamp + random + counter
+ */
+const generateId = (prefix = 'node') => {
   if (typeof crypto !== 'undefined' && crypto.randomUUID) {
-    return `node_${crypto.randomUUID()}`;
+    return `${prefix}_${crypto.randomUUID()}`;
   }
-  return `node_${Date.now()}_${Math.random().toString(36).substring(2, 11)}`;
+  // Add counter to prevent collisions in same millisecond
+  idCounter = (idCounter + 1) % 10000;
+  return `${prefix}_${Date.now()}_${idCounter}_${Math.random().toString(36).substring(2, 11)}`;
 };
 
 /**
@@ -43,6 +50,27 @@ const shallowEqual = (obj1, obj2) => {
   if (keys1.length !== keys2.length) return false;
 
   return keys1.every(key => obj1[key] === obj2[key]);
+};
+
+/**
+ * Logger utility - only logs in development
+ * In production, logs are disabled for performance and security
+ */
+const logger = {
+  log: (...args) => {
+    if (import.meta.env.MODE === 'development') {
+      console.log(...args);
+    }
+  },
+  warn: (...args) => {
+    if (import.meta.env.MODE === 'development') {
+      console.warn(...args);
+    }
+  },
+  error: (...args) => {
+    // Always log errors, even in production
+    console.error(...args);
+  },
 };
 
 // ============================================================================
@@ -115,11 +143,18 @@ export const FlowProvider = ({ children }) => {
   // -------------------------------------------------------------------------
 
   /**
-   * Check for unsaved changes using hash comparison
-   * More efficient than JSON.stringify on every check
+   * Check for unsaved changes using comprehensive hash comparison
+   * Includes: node IDs, positions, data, edge IDs, sources, targets
+   * More comprehensive than just counting nodes/edges
    */
   const currentStateHash = useMemo(() => {
-    return `${nodes.length}-${edges.length}-${nodes.map(n => n.id).join(',')}-${edges.map(e => e.id).join(',')}`;
+    const nodeHash = nodes.map(n =>
+      `${n.id}:${n.position.x}:${n.position.y}:${JSON.stringify(n.data)}`
+    ).join('|');
+    const edgeHash = edges.map(e =>
+      `${e.id}:${e.source}:${e.target}:${e.type || ''}`
+    ).join('|');
+    return `${nodeHash}##${edgeHash}`;
   }, [nodes, edges]);
 
   const hasUnsavedChanges = useCallback(() => {
@@ -194,7 +229,7 @@ export const FlowProvider = ({ children }) => {
   const onConnect = useCallback(
     (params) => setEdges((eds) => addEdge({
       ...params,
-      id: `edge-${Date.now()}`,
+      id: generateId('edge'),
       animated: true,
       type: 'smoothstep',
       style: { stroke: '#6366f1', strokeWidth: 2 }
@@ -269,12 +304,12 @@ export const FlowProvider = ({ children }) => {
   const loadFlow = useCallback(async (id) => {
     // Check for unsaved changes before switching flows
     if (currentFlow && !checkUnsavedChanges()) {
-      console.log('[FlowContext] Load cancelled by user (unsaved changes)');
+      logger.log('[FlowContext] Load cancelled by user (unsaved changes)');
       return;
     }
     // Validation
     if (!id || id === 'undefined' || id === 'null') {
-      console.error('[FlowContext] loadFlow: Invalid ID:', id);
+      logger.error('[FlowContext] loadFlow: Invalid ID:', id);
       safeSetState(() => setError('Cannot load flow: Invalid flow ID'));
       return;
     }
@@ -289,8 +324,8 @@ export const FlowProvider = ({ children }) => {
     safeSetState(() => setError(null));
 
     try {
-      console.log('[FlowContext] Loading flow:', id);
-      const flow = await api.getFlowById(id);
+      logger.log('[FlowContext] Loading flow:', id);
+      const flow = await api.getFlowById(id, { signal: abortControllerRef.current.signal });
 
       if (!isMountedRef.current) return;
 
@@ -313,42 +348,43 @@ export const FlowProvider = ({ children }) => {
         nodes: flowData.nodes || [],
         edges: flowData.edges || []
       };
-      lastSavedHashRef.current = `${flowData.nodes?.length || 0}-${flowData.edges?.length || 0}-${flowData.nodes?.map(n => n.id).join(',') || ''}-${flowData.edges?.map(e => e.id).join(',') || ''}`;
+      lastSavedHashRef.current = currentStateHash;
 
-      console.log('[FlowContext] Flow loaded successfully:', flow.name);
+      logger.log('[FlowContext] Flow loaded successfully:', flow.name);
     } catch (err) {
       if (err.name === 'AbortError') {
-        console.log('[FlowContext] Load cancelled');
+        logger.log('[FlowContext] Load cancelled');
         return;
       }
-      console.error('[FlowContext] Failed to load flow:', err);
+      logger.error('[FlowContext] Failed to load flow:', err);
       safeSetState(() => setError(`Failed to load flow: ${err.message || 'Unknown error'}`));
     } finally {
       setLoadingState('loading', false);
     }
-  }, [setNodes, setEdges, safeSetState, setLoadingState, currentFlow, checkUnsavedChanges]);
+  }, [setNodes, setEdges, safeSetState, setLoadingState, currentFlow, checkUnsavedChanges, currentStateHash]);
 
   /**
    * Fetch all flows from backend
-   * Fixed: Removed currentFlow from deps to prevent race condition
+   * Fixed: Use ref to check currentFlow to prevent race condition
+   * currentFlow is NOT in dependencies to avoid infinite loops
    */
   const fetchFlows = useCallback(async (autoLoad = true) => {
     setLoadingState('fetching', true);
     safeSetState(() => setError(null));
 
     try {
-      console.log('[FlowContext] Fetching flows...');
+      logger.log('[FlowContext] Fetching flows...');
       const data = await api.getFlows();
 
       if (!isMountedRef.current) return;
 
-      console.log('[FlowContext] Received flows:', data?.length || 0);
+      logger.log('[FlowContext] Received flows:', data?.length || 0);
 
       // Filter valid flows
       const validFlows = (data || []).filter(flow => {
         const isValid = flow && flow.id && flow.id !== 'undefined' && flow.id !== 'null';
         if (!isValid) {
-          console.warn('[FlowContext] Filtered invalid flow:', flow);
+          logger.warn('[FlowContext] Filtered invalid flow:', flow);
         }
         return isValid;
       });
@@ -356,27 +392,27 @@ export const FlowProvider = ({ children }) => {
       safeSetState(() => setFlows(validFlows));
 
       // Auto-load first flow only if requested and no current flow
+      // Check currentFlow directly inside the function, not in dependencies
       if (autoLoad && validFlows.length > 0) {
-        // Check if there's a current flow, if not load the first one
-        const shouldAutoLoad = !currentFlow;
-
-        if (shouldAutoLoad) {
-          const firstFlow = validFlows[0];
-          if (firstFlow.id) {
-            console.log('[FlowContext] Auto-loading first flow:', firstFlow.name);
-            await loadFlow(firstFlow.id);
+        // Use setCurrentFlow callback to check if there's a current flow
+        setCurrentFlow(current => {
+          if (!current && validFlows[0]?.id) {
+            logger.log('[FlowContext] Auto-loading first flow:', validFlows[0].name);
+            // Defer loadFlow to next tick to avoid state update during render
+            setTimeout(() => loadFlow(validFlows[0].id), 0);
           }
-        }
+          return current;
+        });
       }
 
-      console.log('[FlowContext] Valid flows loaded:', validFlows.length);
+      logger.log('[FlowContext] Valid flows loaded:', validFlows.length);
     } catch (err) {
-      console.error('[FlowContext] Failed to fetch flows:', err);
+      logger.error('[FlowContext] Failed to fetch flows:', err);
       safeSetState(() => setError('Failed to fetch flows. Please refresh the page.'));
     } finally {
       setLoadingState('fetching', false);
     }
-  }, [loadFlow, safeSetState, setLoadingState, currentFlow]);
+  }, [loadFlow, safeSetState, setLoadingState]);
 
   /**
    * Save current flow
@@ -384,12 +420,12 @@ export const FlowProvider = ({ children }) => {
    */
   const saveCurrentFlow = useCallback(async () => {
     if (!currentFlow) {
-      console.warn('[FlowContext] No current flow to save');
+      logger.warn('[FlowContext] No current flow to save');
       return;
     }
 
     if (!hasUnsavedChanges()) {
-      console.log('[FlowContext] No changes to save');
+      logger.log('[FlowContext] No changes to save');
       return;
     }
 
@@ -420,13 +456,18 @@ export const FlowProvider = ({ children }) => {
         ));
       });
 
-      console.log('[FlowContext] Flow saved successfully');
+      logger.log('[FlowContext] Flow saved successfully');
     } catch (err) {
-      console.error('[FlowContext] Failed to save flow:', err);
+      logger.error('[FlowContext] Failed to save flow:', err);
       safeSetState(() => setError(`Failed to save flow: ${err.message || 'Unknown error'}`));
       throw err;
     } finally {
-      setTimeout(() => setLoadingState('saving', false), 1000);
+      // Use safeSetState pattern with setTimeout to prevent memory leaks
+      setTimeout(() => {
+        if (isMountedRef.current) {
+          setLoadingState('saving', false);
+        }
+      }, 1000);
     }
   }, [currentFlow, nodes, edges, hasUnsavedChanges, currentStateHash, safeSetState, setLoadingState]);
 
@@ -437,7 +478,7 @@ export const FlowProvider = ({ children }) => {
   const createNewFlow = useCallback(async (name) => {
     // Check for unsaved changes before creating new flow
     if (currentFlow && !checkUnsavedChanges()) {
-      console.log('[FlowContext] Create cancelled by user (unsaved changes)');
+      logger.log('[FlowContext] Create cancelled by user (unsaved changes)');
       throw new Error('Cancelled by user');
     }
 
@@ -445,7 +486,7 @@ export const FlowProvider = ({ children }) => {
     safeSetState(() => setError(null));
 
     try {
-      console.log('[FlowContext] Creating new flow:', name);
+      logger.log('[FlowContext] Creating new flow:', name);
       const newFlow = await api.createFlow({
         name,
         flow_data: { nodes: [], edges: [] },
@@ -461,9 +502,9 @@ export const FlowProvider = ({ children }) => {
       safeSetState(() => setFlows(prev => [...prev, newFlow]));
       await loadFlow(newFlow.id);
 
-      console.log('[FlowContext] Flow created:', newFlow.id);
+      logger.log('[FlowContext] Flow created:', newFlow.id);
     } catch (err) {
-      console.error('[FlowContext] Failed to create flow:', err);
+      logger.error('[FlowContext] Failed to create flow:', err);
       safeSetState(() => setError(`Failed to create flow: ${err.message || 'Unknown error'}`));
       throw err;
     } finally {
@@ -473,11 +514,11 @@ export const FlowProvider = ({ children }) => {
 
   /**
    * Delete a flow
-   * Fixed: Use functional update to avoid stale closure
+   * Fixed: Use functional update and setCurrentFlow callback to avoid stale closure
    */
   const deleteFlow = useCallback(async (flowId) => {
     if (!flowId || flowId === 'undefined' || flowId === 'null') {
-      console.error('[FlowContext] deleteFlow: Invalid ID:', flowId);
+      logger.error('[FlowContext] deleteFlow: Invalid ID:', flowId);
       safeSetState(() => setError('Cannot delete flow: Invalid flow ID'));
       return;
     }
@@ -486,7 +527,7 @@ export const FlowProvider = ({ children }) => {
     safeSetState(() => setError(null));
 
     try {
-      console.log('[FlowContext] Deleting flow:', flowId);
+      logger.log('[FlowContext] Deleting flow:', flowId);
       await api.deleteFlow(flowId);
 
       if (!isMountedRef.current) return;
@@ -495,34 +536,43 @@ export const FlowProvider = ({ children }) => {
       safeSetState(() => {
         setFlows(prev => {
           const updated = prev.filter(f => f.id !== flowId);
+          return updated;
+        });
 
-          // If deleted flow was current, load another
-          if (currentFlow?.id === flowId) {
+        // Use setCurrentFlow callback to check if deleted flow was current
+        // This avoids stale closure issue with currentFlow
+        setCurrentFlow(current => {
+          if (current?.id === flowId) {
+            // Clear current state
             setNodes([]);
             setEdges([]);
-            setCurrentFlow(null);
             originalFlowState.current = null;
             lastSavedHashRef.current = null;
 
-            if (updated.length > 0 && updated[0].id) {
-              console.log('[FlowContext] Loading next flow after delete');
-              setTimeout(() => loadFlow(updated[0].id), 0);
-            }
-          }
+            // Load next flow if available
+            setFlows(flows => {
+              if (flows.length > 0 && flows[0].id) {
+                logger.log('[FlowContext] Loading next flow after delete');
+                setTimeout(() => loadFlow(flows[0].id), 0);
+              }
+              return flows;
+            });
 
-          return updated;
+            return null;
+          }
+          return current;
         });
       });
 
-      console.log('[FlowContext] Flow deleted successfully');
+      logger.log('[FlowContext] Flow deleted successfully');
     } catch (err) {
-      console.error('[FlowContext] Failed to delete flow:', err);
+      logger.error('[FlowContext] Failed to delete flow:', err);
       safeSetState(() => setError(`Failed to delete flow: ${err.message || 'Unknown error'}`));
       throw err;
     } finally {
       setLoadingState('deleting', false);
     }
-  }, [currentFlow, loadFlow, setNodes, setEdges, safeSetState, setLoadingState]);
+  }, [loadFlow, setNodes, setEdges, safeSetState, setLoadingState]);
 
   // -------------------------------------------------------------------------
   // PANEL OPERATIONS

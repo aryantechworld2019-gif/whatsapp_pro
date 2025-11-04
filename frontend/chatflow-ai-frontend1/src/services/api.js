@@ -30,7 +30,7 @@ const handleResponse = async (response) => {
 /**
  * apiFetch(endpoint, options, opts)
  * - endpoint : string (e.g. '/login' or '/dashboard/stats')
- * - options  : fetch options (method, body, headers)
+ * - options  : fetch options (method, body, headers, signal)
  * - opts     : { withCredentials: boolean } -> include cookies when true
  */
 export const apiFetch = async (endpoint, options = {}, opts = {}) => {
@@ -46,6 +46,7 @@ export const apiFetch = async (endpoint, options = {}, opts = {}) => {
     body: options.body,
     credentials: withCredentials ? 'include' : 'same-origin',
     redirect: 'manual',
+    signal: options.signal, // Support AbortController signal
   };
 
   // If body is an object and Content-Type is application/json, stringify
@@ -70,11 +71,11 @@ export const createContact = (contactData) =>
 // --- Flows API ---
 export const getFlows = () => apiFetch('/flows');
 
-export const getFlowById = (id) => {
+export const getFlowById = (id, options = {}) => {
   if (!id || id === 'undefined' || id === 'null') {
     return Promise.reject(new Error(`Invalid flow ID: ${id}`));
   }
-  return apiFetch(`/flows/${id}`);
+  return apiFetch(`/flows/${id}`, options);
 };
 
 export const createFlow = (flowData) =>
