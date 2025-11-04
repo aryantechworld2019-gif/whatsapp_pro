@@ -291,7 +291,12 @@ async def create_flow(flow: ChatbotFlowCreate, db: AsyncIOMotorDatabase = Depend
     new_flow = await db.flows.insert_one(flow_dict)
     created_flow = await db.flows.find_one({"_id": new_flow.inserted_id})
     flow_obj = ChatbotFlowInDB(**created_flow)
-    return flow_obj.model_dump(by_alias=False, mode='json')
+    # Explicitly serialize and rename _id to id
+    result = flow_obj.model_dump(by_alias=False, mode='json')
+    # Ensure _id is converted to id for frontend compatibility
+    if '_id' in result and 'id' not in result:
+        result['id'] = result.pop('_id')
+    return result
 
 @app.get("/api/flows")
 async def get_all_flows(db: AsyncIOMotorDatabase = Depends(get_database)):
@@ -300,6 +305,9 @@ async def get_all_flows(db: AsyncIOMotorDatabase = Depends(get_database)):
         flow_obj = ChatbotFlowInDB(**flow)
         # Explicitly serialize with field names (not aliases)
         flow_dict = flow_obj.model_dump(by_alias=False, mode='json')
+        # Ensure _id is converted to id for frontend compatibility
+        if '_id' in flow_dict and 'id' not in flow_dict:
+            flow_dict['id'] = flow_dict.pop('_id')
         flows.append(flow_dict)
     return flows
 
@@ -311,7 +319,11 @@ async def get_flow(id: str, db: AsyncIOMotorDatabase = Depends(get_database)):
     if flow is None:
         raise HTTPException(status_code=404, detail="Flow not found")
     flow_obj = ChatbotFlowInDB(**flow)
-    return flow_obj.model_dump(by_alias=False, mode='json')
+    result = flow_obj.model_dump(by_alias=False, mode='json')
+    # Ensure _id is converted to id for frontend compatibility
+    if '_id' in result and 'id' not in result:
+        result['id'] = result.pop('_id')
+    return result
 
 @app.put("/api/flows/{id}")
 async def update_flow(id: str, flow_update: ChatbotFlowUpdate, db: AsyncIOMotorDatabase = Depends(get_database)):
@@ -327,7 +339,11 @@ async def update_flow(id: str, flow_update: ChatbotFlowUpdate, db: AsyncIOMotorD
         raise HTTPException(status_code=404, detail="Flow not found")
     updated_flow = await db.flows.find_one({"_id": ObjectId(id)})
     flow_obj = ChatbotFlowInDB(**updated_flow)
-    return flow_obj.model_dump(by_alias=False, mode='json')
+    result = flow_obj.model_dump(by_alias=False, mode='json')
+    # Ensure _id is converted to id for frontend compatibility
+    if '_id' in result and 'id' not in result:
+        result['id'] = result.pop('_id')
+    return result
 
 @app.delete("/api/flows/{id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_flow(id: str, db: AsyncIOMotorDatabase = Depends(get_database)):
