@@ -104,25 +104,29 @@ export const FlowSelector = () => {
                     <p className="text-xs text-gray-400">Create your first flow to get started</p>
                   </div>
                 ) : (
-                  flows.map((flow) => (
-                    <Menu.Item key={flow.id}>
-                      {({ active }) => (
-                        <button
-                          onClick={() => loadFlow(flow.id)}
-                          className={`
-                            ${active ? 'bg-indigo-50 text-indigo-900' : 'text-gray-700'}
-                            ${currentFlow?.id === flow.id ? 'bg-indigo-100 font-semibold' : ''}
-                            group flex w-full items-center px-4 py-2.5 text-sm transition-colors duration-150
-                          `}
-                        >
-                          <span className="truncate flex-1 text-left">{flow.name}</span>
-                          {currentFlow?.id === flow.id && (
-                            <Check className="w-4 h-4 text-indigo-600 ml-2 flex-shrink-0" />
-                          )}
-                        </button>
-                      )}
-                    </Menu.Item>
-                  ))
+                  flows
+                    .filter(flow => flow && flow.id) // Filter out invalid flows
+                    .map((flow, index) => (
+                      <Menu.Item key={flow.id || `flow-${index}`}>
+                        {({ active }) => (
+                          <button
+                            onClick={() => flow.id && loadFlow(flow.id)}
+                            disabled={!flow.id}
+                            className={`
+                              ${active ? 'bg-indigo-50 text-indigo-900' : 'text-gray-700'}
+                              ${currentFlow?.id === flow.id ? 'bg-indigo-100 font-semibold' : ''}
+                              ${!flow.id ? 'opacity-50 cursor-not-allowed' : ''}
+                              group flex w-full items-center px-4 py-2.5 text-sm transition-colors duration-150
+                            `}
+                          >
+                            <span className="truncate flex-1 text-left">{flow.name || 'Unnamed Flow'}</span>
+                            {currentFlow?.id === flow.id && (
+                              <Check className="w-4 h-4 text-indigo-600 ml-2 flex-shrink-0" />
+                            )}
+                          </button>
+                        )}
+                      </Menu.Item>
+                    ))
                 )}
                 <div className="border-t border-gray-200 my-1" />
                 <Menu.Item>

@@ -125,13 +125,15 @@ export const FlowProvider = ({ children }) => {
   const fetchFlows = useCallback(async () => {
     setIsLoading(true);
     setError(null);
-    
+
     try {
       const data = await api.getFlows();
-      setFlows(data);
-      
-      if (!currentFlow && data.length > 0) {
-        await loadFlow(data[0].id);
+      // Filter out any flows without valid IDs
+      const validFlows = data.filter(flow => flow && flow.id);
+      setFlows(validFlows);
+
+      if (!currentFlow && validFlows.length > 0 && validFlows[0].id) {
+        await loadFlow(validFlows[0].id);
       }
     } catch (err) {
       console.error("Failed to fetch flows:", err);
