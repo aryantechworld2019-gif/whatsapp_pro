@@ -495,7 +495,14 @@ export const FlowProvider = ({ children }) => {
 
       if (!isMountedRef.current) return;
 
+      // Debug: Log the actual response from backend
+      console.log('[FlowContext] Backend response:', JSON.stringify(newFlow, null, 2));
+      console.log('[FlowContext] newFlow.id:', newFlow.id);
+      console.log('[FlowContext] newFlow._id:', newFlow._id);
+      console.log('[FlowContext] All keys:', Object.keys(newFlow));
+
       if (!newFlow || !newFlow.id || newFlow.id === 'undefined' || newFlow.id === 'null') {
+        console.error('[FlowContext] Invalid flow - full object:', newFlow);
         throw new Error('Server returned flow without valid ID');
       }
 
