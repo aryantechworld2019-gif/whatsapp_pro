@@ -69,13 +69,30 @@ export const createContact = (contactData) =>
 
 // --- Flows API ---
 export const getFlows = () => apiFetch('/flows');
-export const getFlowById = (id) => apiFetch(`/flows/${id}`);
+
+export const getFlowById = (id) => {
+  if (!id || id === 'undefined' || id === 'null') {
+    return Promise.reject(new Error(`Invalid flow ID: ${id}`));
+  }
+  return apiFetch(`/flows/${id}`);
+};
+
 export const createFlow = (flowData) =>
   apiFetch('/flows', { method: 'POST', body: flowData });
-export const updateFlow = (id, flowData) =>
-  apiFetch(`/flows/${id}`, { method: 'PUT', body: flowData });
-export const deleteFlow = (id) =>
-  apiFetch(`/flows/${id}`, { method: 'DELETE' });
+
+export const updateFlow = (id, flowData) => {
+  if (!id || id === 'undefined' || id === 'null') {
+    return Promise.reject(new Error(`Invalid flow ID: ${id}`));
+  }
+  return apiFetch(`/flows/${id}`, { method: 'PUT', body: flowData });
+};
+
+export const deleteFlow = (id) => {
+  if (!id || id === 'undefined' || id === 'null') {
+    return Promise.reject(new Error(`Invalid flow ID: ${id}`));
+  }
+  return apiFetch(`/flows/${id}`, { method: 'DELETE' });
+};
 
 // --- Broadcast API ---
 export const sendBroadcast = (broadcastData) =>

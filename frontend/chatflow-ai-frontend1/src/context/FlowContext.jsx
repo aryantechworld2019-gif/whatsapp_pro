@@ -94,28 +94,43 @@ export const FlowProvider = ({ children }) => {
 
   // Load a specific flow from the backend
   const loadFlow = useCallback(async (id) => {
+    // VALIDATION: Ensure ID is valid before making API call
+    if (!id || id === 'undefined' || id === 'null') {
+      console.error('loadFlow called with invalid ID:', id);
+      setError('Cannot load flow: Invalid flow ID');
+      return;
+    }
+
     setIsLoading(true);
     setError(null);
-    
+
     try {
+      console.log('Loading flow with ID:', id);
       const flow = await api.getFlowById(id);
+
+      if (!flow || !flow.id) {
+        throw new Error('Received invalid flow data from server');
+      }
+
       const flowData = flow.flow_data || { nodes: [], edges: [] };
-      
+
       setNodes(flowData.nodes || []);
       setEdges(flowData.edges || []);
       setCurrentFlow(flow);
-      
+
       // Store the original state for change detection
-      originalFlowState.current = { 
-        nodes: flowData.nodes || [], 
-        edges: flowData.edges || [] 
+      originalFlowState.current = {
+        nodes: flowData.nodes || [],
+        edges: flowData.edges || []
       };
-      
+
       setIsPanelOpen(false);
       setSelectedNodeId(null);
+
+      console.log('Flow loaded successfully:', flow.name);
     } catch (err) {
       console.error("Failed to load flow:", err);
-      setError("Failed to load flow. Please try again.");
+      setError(`Failed to load flow: ${err.message || 'Unknown error'}`);
     } finally {
       setIsLoading(false);
     }
@@ -127,13 +142,34 @@ export const FlowProvider = ({ children }) => {
     setError(null);
 
     try {
+      console.log('Fetching flows from backend...');
       const data = await api.getFlows();
+      console.log('Received flows:', data);
+
       // Filter out any flows without valid IDs
-      const validFlows = data.filter(flow => flow && flow.id);
+      const validFlows = data.filter(flow => {
+        const isValid = flow && flow.id && flow.id !== 'undefined' && flow.id !== 'null';
+        if (!isValid) {
+          console.warn('Filtered out invalid flow:', flow);
+        }
+        return isValid;
+      });
+
+      console.log('Valid flows:', validFlows.length);
       setFlows(validFlows);
 
-      if (!currentFlow && validFlows.length > 0 && validFlows[0].id) {
-        await loadFlow(validFlows[0].id);
+      // Auto-load first flow ONLY if:
+      // 1. No current flow is loaded
+      // 2. Valid flows exist
+      // 3. First flow has valid ID
+      if (!currentFlow && validFlows.length > 0) {
+        const firstFlow = validFlows[0];
+        if (firstFlow.id && firstFlow.id !== 'undefined' && firstFlow.id !== 'null') {
+          console.log('Auto-loading first flow:', firstFlow.name, firstFlow.id);
+          await loadFlow(firstFlow.id);
+        } else {
+          console.error('First flow has invalid ID:', firstFlow);
+        }
       }
     } catch (err) {
       console.error("Failed to fetch flows:", err);
@@ -185,19 +221,27 @@ export const FlowProvider = ({ children }) => {
   const createNewFlow = useCallback(async (name) => {
     setIsLoading(true);
     setError(null);
-    
+
     try {
-      const newFlow = await api.createFlow({ 
-        name, 
+      console.log('Creating new flow:', name);
+      const newFlow = await api.createFlow({
+        name,
         flow_data: { nodes: [], edges: [] },
         is_active: false
       });
-      
+
+      console.log('Flow created:', newFlow);
+
+      // VALIDATION: Ensure created flow has valid ID
+      if (!newFlow || !newFlow.id || newFlow.id === 'undefined' || newFlow.id === 'null') {
+        throw new Error('Server returned flow without valid ID');
+      }
+
       setFlows(prev => [...prev, newFlow]);
       await loadFlow(newFlow.id);
     } catch (err) {
       console.error("Failed to create new flow:", err);
-      setError("Failed to create flow. Please try again.");
+      setError(`Failed to create flow: ${err.message || 'Unknown error'}`);
       throw err;
     } finally {
       setIsLoading(false);
@@ -206,28 +250,37 @@ export const FlowProvider = ({ children }) => {
 
   // Delete a flow from the system
   const deleteFlow = useCallback(async (flowId) => {
+    // VALIDATION: Check flow ID before attempting delete
+    if (!flowId || flowId === 'undefined' || flowId === 'null') {
+      console.error('deleteFlow called with invalid ID:', flowId);
+      setError('Cannot delete flow: Invalid flow ID');
+      return;
+    }
+
     setIsLoading(true);
     setError(null);
-    
+
     try {
+      console.log('Deleting flow:', flowId);
       await api.deleteFlow(flowId);
-      
+
       setFlows(prev => prev.filter(f => f.id !== flowId));
-      
+
       if (currentFlow?.id === flowId) {
         setNodes([]);
         setEdges([]);
         setCurrentFlow(null);
         originalFlowState.current = null;
-        
+
         const remainingFlows = flows.filter(f => f.id !== flowId);
-        if (remainingFlows.length > 0) {
+        if (remainingFlows.length > 0 && remainingFlows[0].id) {
+          console.log('Loading next flow after delete:', remainingFlows[0].id);
           await loadFlow(remainingFlows[0].id);
         }
       }
     } catch (err) {
       console.error("Failed to delete flow:", err);
-      setError("Failed to delete flow. Please try again.");
+      setError(`Failed to delete flow: ${err.message || 'Unknown error'}`);
       throw err;
     } finally {
       setIsLoading(false);
