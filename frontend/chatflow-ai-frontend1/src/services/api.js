@@ -74,6 +74,8 @@ export const createFlow = (flowData) =>
   apiFetch('/flows', { method: 'POST', body: flowData });
 export const updateFlow = (id, flowData) =>
   apiFetch(`/flows/${id}`, { method: 'PUT', body: flowData });
+export const deleteFlow = (id) =>
+  apiFetch(`/flows/${id}`, { method: 'DELETE' });
 
 // --- Broadcast API ---
 export const sendBroadcast = (broadcastData) =>
@@ -91,6 +93,7 @@ const api = {
   getFlowById,
   createFlow,
   updateFlow,
+  deleteFlow,
   sendBroadcast,
   loginWithCookies,
 };

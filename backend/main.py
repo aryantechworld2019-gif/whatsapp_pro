@@ -315,6 +315,15 @@ async def update_flow(id: str, flow_update: ChatbotFlowUpdate, db: AsyncIOMotorD
     updated_flow = await db.flows.find_one({"_id": ObjectId(id)})
     return ChatbotFlowInDB(**updated_flow)
 
+@app.delete("/api/flows/{id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_flow(id: str, db: AsyncIOMotorDatabase = Depends(get_database)):
+    if not ObjectId.is_valid(id):
+        raise HTTPException(status_code=400, detail="Invalid flow ID")
+    result = await db.flows.delete_one({"_id": ObjectId(id)})
+    if result.deleted_count == 0:
+        raise HTTPException(status_code=404, detail="Flow not found")
+    return None
+
 # --- Broadcast Endpoint ---
 class BroadcastRequest(BaseModel):
     message: str
