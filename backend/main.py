@@ -60,27 +60,35 @@ def get_database() -> AsyncIOMotorDatabase:
 
 # --- Pydantic Models ---
 
-class PyObjectId(ObjectId):
+class PyObjectId(str):
+    """Custom type for MongoDB ObjectId that serializes to string for JSON."""
+
     @classmethod
-    def __get_validators__(cls):
-        yield cls.validate
-    @classmethod
-    def validate(cls, v, *args, **kwargs):
-        if not ObjectId.is_valid(v):
-            raise ValueError("Invalid ObjectId")
-        return ObjectId(v)
-    @classmethod
-    def __json_encoder__(cls, v):
-        return str(v)
+    def __get_pydantic_core_schema__(cls, source_type, handler):
+        from pydantic_core import core_schema
+
+        def validate(value):
+            if isinstance(value, ObjectId):
+                return str(value)
+            if isinstance(value, str):
+                if ObjectId.is_valid(value):
+                    return value
+                raise ValueError(f"Invalid ObjectId: {value}")
+            raise ValueError(f"ObjectId must be ObjectId or str, not {type(value)}")
+
+        return core_schema.with_info_plain_validator_function(
+            lambda v, _: validate(v),
+            serialization=core_schema.str_schema(),
+        )
 
 class Contact(BaseModel):
-    id: PyObjectId = Field(default_factory=PyObjectId, alias="_id")
+    id: Optional[PyObjectId] = Field(default=None, alias="_id")
     name: str = Field(..., min_length=1)
     phone_number: str = Field(..., pattern=r"^\+?[1-9]\d{1,14}$")
     tags: List[str] = []
     current_flow_node_id: Optional[str] = None
     last_active: datetime.datetime = Field(default_factory=datetime.datetime.utcnow)
-    
+
     model_config = ConfigDict(
         arbitrary_types_allowed=True,
         json_encoders={ObjectId: str},
@@ -96,11 +104,11 @@ class ContactCreate(BaseModel):
     tags: List[str] = []
 
 class ChatbotFlow(BaseModel):
-    id: PyObjectId = Field(default_factory=PyObjectId, alias="_id")
+    id: Optional[PyObjectId] = Field(default=None, alias="_id")
     name: str
-    flow_data: dict = Field(..., default_factory=dict)
+    flow_data: dict = Field(default_factory=dict)
     is_active: bool = False
-    
+
     model_config = ConfigDict(
         arbitrary_types_allowed=True,
         json_encoders={ObjectId: str},
@@ -112,7 +120,7 @@ class ChatbotFlowInDB(ChatbotFlow):
 
 class ChatbotFlowCreate(BaseModel):
     name: str = Field(..., min_length=1)
-    flow_data: dict = Field(..., default_factory=dict)
+    flow_data: dict = Field(default_factory=dict)
     is_active: bool = False
 
 class ChatbotFlowUpdate(BaseModel):
@@ -121,13 +129,13 @@ class ChatbotFlowUpdate(BaseModel):
     is_active: Optional[bool] = None
 
 class MessageLog(BaseModel):
-    id: PyObjectId = Field(default_factory=PyObjectId, alias="_id")
+    id: Optional[PyObjectId] = Field(default=None, alias="_id")
     contact_id: PyObjectId
     from_number: str
     direction: str # "inbound" or "outbound"
     text: str
     timestamp: datetime.datetime = Field(default_factory=datetime.datetime.utcnow)
-    
+
     model_config = ConfigDict(
         arbitrary_types_allowed=True,
         json_encoders={ObjectId: str},
