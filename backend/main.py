@@ -535,9 +535,9 @@ async def get_dashboard_stats(db: AsyncIOMotorDatabase = Depends(get_database)):
 # --- Run the application ---
 if __name__ == "__main__":
     logging.info("Starting FastAPI server for development...")
-    # uvicorn.run(
-    #     "main:app",
-    #     host="0.0.0.0",
-    #     port=8000,
-    #     reload=True
-    # )
+    uvicorn.run(
+        "main:app",
+        host="0.0.0.0",
+        port=8000,
+        reload=True
+    )
