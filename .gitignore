@@ -1,5 +1,10 @@
+# .gitignore
 
-\aryan-labs\whatsapp_pro\venv
-\aryan-labs\whatsapp_pro\backend\old
-/aryan-labs/whatsapp_pro/frontend/old
-\aryan-labs\whatsapp_pro\frontend\chatflow-ai-frontend1\node_modules
+# Python virtual environments
+venv/
+
+# Node.js dependencies
+**/node_modules/
+
+# All directories named 'old'
+**/old/

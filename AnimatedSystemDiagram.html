@@ -1,0 +1,225 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ChatFlow AI - System Diagram</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        /* Custom font */
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
+        body {
+            font-family: 'Inter', sans-serif;
+        }
+
+        /* Base styles for components */
+        .component {
+            @apply bg-white shadow-xl rounded-lg p-4 text-center flex flex-col justify-center items-center transition-all duration-300;
+        }
+        .component-title {
+            @apply text-sm font-bold text-gray-800 mb-1;
+        }
+        .component-desc {
+            @apply text-xs text-gray-500;
+        }
+
+        /* Arrow base styles */
+        .arrow {
+            @apply absolute z-0 bg-gray-300;
+        }
+
+        /* Data packet animation */
+        .packet {
+            @apply absolute w-3 h-3 rounded-full shadow-lg z-10;
+            animation-duration: 3s;
+            animation-timing-function: ease-in-out;
+            animation-iteration-count: infinite;
+            opacity: 0;
+        }
+        
+        /* Incoming message flow */
+        .packet-in {
+            @apply bg-blue-500;
+            animation-name: flow-in;
+        }
+        @keyframes flow-in {
+            0% { top: 50%; left: 0; opacity: 0; transform: scale(0.5); }
+            10% { opacity: 1; transform: scale(1); }
+            35% { top: 50%; left: calc(25% - 20px); opacity: 1; transform: scale(1); } /* To Backend */
+            40% { top: 50%; left: calc(25% - 20px); opacity: 0; } /* Disappear at Backend */
+            100% { opacity: 0; }
+        }
+
+        /* AI processing flow */
+        .packet-ai {
+            @apply bg-purple-500;
+            animation-name: flow-ai;
+        }
+        @keyframes flow-ai {
+            0% { opacity: 0; }
+            40% { top: 50%; left: calc(25% + 20px); opacity: 0; transform: scale(0.5); } /* From Backend */
+            45% { opacity: 1; transform: scale(1); }
+            65% { top: calc(20% + 40px); left: calc(50% - 6px); opacity: 1; transform: scale(1); } /* To OpenAI */
+            70% { top: calc(20% + 40px); left: calc(50% - 6px); opacity: 0; } /* At OpenAI */
+            75% { top: calc(20% + 40px); left: calc(50% - 6px); opacity: 0; } /* From OpenAI */
+            80% { opacity: 1; transform: scale(1); }
+            95% { top: 50%; left: calc(25% + 20px); opacity: 1; transform: scale(1); } /* To Backend */
+            100% { top: 50%; left: calc(25% + 20px); opacity: 0; } /* At Backend */
+        }
+        
+        /* Outgoing message flow */
+        .packet-out {
+            @apply bg-green-500;
+            animation-name: flow-out;
+        }
+        @keyframes flow-out {
+            0% { opacity: 0; }
+            80% { top: 50%; left: calc(25% - 20px); opacity: 0; transform: scale(0.5); } /* From Backend */
+            85% { opacity: 1; transform: scale(1); }
+            100% { top: 50%; left: 0; opacity: 1; transform: scale(1); } /* To WhatsApp */
+        }
+
+        /* Dashboard flow */
+         .packet-dash-read {
+            @apply bg-yellow-500;
+            animation-name: flow-dash-read;
+        }
+        @keyframes flow-dash-read {
+             0% { top: 50%; left: calc(75% - 20px); opacity: 0; transform: scale(0.5); } /* From Dashboard */
+            5% { opacity: 1; transform: scale(1); }
+            20% { top: 50%; left: calc(25% + 20px); opacity: 1; transform: scale(1); } /* To Backend */
+            25% { top: 50%; left: calc(25% + 20px); opacity: 0; } /* At Backend */
+            25.1% { opacity: 0; }
+            30% { top: 50%; left: calc(25% + 20px); opacity: 0; transform: scale(0.5); } /* From Backend */
+            35% { opacity: 1; transform: scale(1); }
+            50% { top: 50%; left: calc(75% - 20px); opacity: 1; transform: scale(1); } /* To Dashboard */
+            55% { top: 50%; left: calc(75% - 20px); opacity: 0; } /* At Dashboard */
+            100% { opacity: 0; }
+        }
+        
+         .packet-dash-db {
+            @apply bg-red-500;
+            animation-name: flow-dash-db;
+        }
+         @keyframes flow-dash-db {
+            0% { opacity: 0; }
+            25% { top: 50%; left: calc(25% + 20px); opacity: 0; transform: scale(0.5); } /* From Backend */
+            30% { opacity: 1; transform: scale(1); }
+            45% { top: calc(80% - 40px); left: calc(50% - 6px); opacity: 1; transform: scale(1); } /* To DB */
+            50% { top: calc(80% - 40px); left: calc(50% - 6px); opacity: 0; } /* At DB */
+            50.1% { opacity: 0; }
+            55% { top: calc(80% - 40px); left: calc(50% - 6px); opacity: 0; transform: scale(0.5); } /* From DB */
+            60% { opacity: 1; transform: scale(1); }
+            75% { top: 50%; left: calc(25% + 20px); opacity: 1; transform: scale(1); } /* To Backend */
+            80% { top: 50%; left: calc(25% + 20px); opacity: 0; } /* At Backend */
+            100% { opacity: 0; }
+        }
+
+    </style>
+</head>
+<body class="bg-gray-100 min-h-screen flex flex-col items-center justify-center p-4 lg:p-10 font-inter">
+
+    <div class="w-full max-w-6xl mx-auto text-center mb-8">
+        <h1 class="text-3xl font-bold text-gray-900">ChatFlow AI - Animated System Architecture</h1>
+        <p class="text-lg text-gray-600 mt-2">Visualizing the flow of data from customer to bot and back.</p>
+    </div>
+
+    <!-- Main Diagram Container -->
+    <div class="w-full max-w-6xl h-[600px] bg-white rounded-2xl shadow-2xl p-6 relative">
+        
+        <!-- Components -->
+        
+        <!-- Row 1: End Users / External APIs -->
+        <div id="whatsapp" class="component w-40 h-24 absolute top-1/2 -translate-y-1/2 left-8">
+            <img src="https://placehold.co/40x40/25D366/FFFFFF?text=WA" class="w-10 h-10 rounded-lg" alt="WA"/>
+            <h3 class="component-title mt-2">Customer</h3>
+            <p class="component-desc">via WhatsApp</p>
+        </div>
+        
+        <div id="openai" class="component w-40 h-24 absolute top-20 left-1/2 -translate-x-1/2">
+            <img src="https://placehold.co/40x40/74AA9C/FFFFFF?text=AI" class="w-10 h-10 rounded-lg" alt="AI"/>
+            <h3 class="component-title mt-2">OpenAI API</h3>
+            <p class="component-desc">GPT-4 for AI Chat</p>
+        </div>
+
+        <!-- Row 2: Core Backend -->
+        <div id="backend" class="component w-48 h-32 absolute top-1/2 -translate-y-1/2 left-1/4 ml-8">
+            <img src="https://placehold.co/40x40/343541/FFFFFF?text=Py" class="w-10 h-10 rounded-lg" alt="FastAPI"/>
+            <h3 class="component-title mt-2">FastAPI Backend</h3>
+            <p class="component-desc">(Python)</p>
+        </div>
+        
+        <!-- Row 3: Database -->
+        <div id="mongodb" class="component w-40 h-24 absolute bottom-20 left-1/2 -translate-x-1/2">
+            <img src="https://placehold.co/40x40/4DB33D/FFFFFF?text=DB" class="w-10 h-10 rounded-lg" alt="Mongo"/>
+            <h3 class="component-title mt-2">MongoDB</h3>
+            <p class="component-desc">Contacts & Flows</p>
+        </div>
+
+        <!-- Row 4: Admin Frontend -->
+        <div id="frontend" class="component w-48 h-32 absolute top-1/2 -translate-y-1/2 right-1/4 mr-8">
+            <img src="https://placehold.co/40x40/61DAFB/FFFFFF?text=Re" class="w-10 h-10 rounded-lg" alt="React"/>
+            <h3 class="component-title mt-2">React Dashboard</h3>
+            <p class="component-desc">(Salon Owner)</p>
+        </div>
+
+        <!-- Arrows -->
+        <!-- WhatsApp <-> Backend -->
+        <div class="arrow h-1" style="width: calc(25% - 100px); top: 50%; left: calc(32px + 160px); transform: translateY(-50%);"></div>
+        
+        <!-- Backend <-> OpenAI -->
+        <div class="arrow w-1" style="height: calc(50% - 128px); top: calc(20% + 96px); left: calc(25% + 104px); transform: translateX(-50%);"></div>
+        <div class="arrow h-1" style="width: calc(25% - 110px); top: calc(20% + 96px); left: calc(25% + 104px);"></div>
+
+        <!-- Backend <-> MongoDB -->
+        <div class="arrow w-1" style="height: calc(30% - 128px); top: calc(50% + 64px); left: calc(25% + 104px); transform: translateX(-50%);"></div>
+        <div class="arrow h-1" style="width: calc(25% - 110px); top: calc(80% - 96px); left: calc(25% + 104px);"></div>
+
+        <!-- Backend <-> Frontend -->
+        <div class="arrow h-1" style="width: calc(50% - 240px); top: 50%; left: calc(25% + 104px + 88px); transform: translateY(-50%);"></div>
+
+        <!-- Animated Data Packets -->
+        
+        <!-- Flow 1: Customer sends a message -->
+        <div class="packet packet-in" style="transform: translateY(-50%);"></div>
+        
+        <!-- Flow 2: Backend processes with AI -->
+        <div class="packet packet-ai" style="animation-delay: 1s;"></div>
+        
+        <!-- Flow 3: Backend sends reply -->
+        <div class="packet packet-out" style="transform: translateY(-50%); animation-delay: 2.5s;"></div>
+
+        <!-- Flow 4: Salon owner checks dashboard -->
+        <div class="packet packet-dash-read" style="transform: translateY(-50%); animation-duration: 4s;"></div>
+        <div class="packet packet-dash-db" style="animation-delay: 1s; animation-duration: 4s;"></div>
+    </div>
+    
+    <!-- Legend -->
+    <div class="w-full max-w-6xl mx-auto mt-6">
+        <h4 class="font-semibold text-lg text-center mb-3">Data Flow Legend</h4>
+        <div class="flex flex-wrap justify-center gap-4">
+            <div class="flex items-center gap-2 p-2 bg-white rounded-lg shadow-md">
+                <div class="w-4 h-4 rounded-full bg-blue-500"></div>
+                <span class="text-sm font-medium">1. Incoming Message (Customer)</span>
+            </div>
+            <div class="flex items-center gap-2 p-2 bg-white rounded-lg shadow-md">
+                <div class="w-4 h-4 rounded-full bg-purple-500"></div>
+                <span class="text-sm font-medium">2. AI Processing (OpenAI)</span>
+            </div>
+            <div class="flex items-center gap-2 p-2 bg-white rounded-lg shadow-md">
+                <div class="w-4 h-4 rounded-full bg-green-500"></div>
+                <span class="text-sm font-medium">3. AI Reply (Bot)</span>
+            </div>
+            <div class="flex items-center gap-2 p-2 bg-white rounded-lg shadow-md">
+                <div class="w-4 h-4 rounded-full bg-yellow-500"></div>
+                <span class="text-sm font-medium">4. Dashboard Read (Salon Owner)</span>
+            </div>
+             <div class="flex items-center gap-2 p-2 bg-white rounded-lg shadow-md">
+                <div class="w-4 h-4 rounded-full bg-red-500"></div>
+                <span class="text-sm font-medium">5. Database Read/Write</span>
+            </div>
+        </div>
+    </div>
+
+</body>
+</html>
