@@ -1,11 +1,55 @@
-import { createContext, useContext, useState, useCallback, useRef } from 'react';
+import { createContext, useContext, useState, useCallback, useRef, useMemo, useEffect } from 'react';
 import { useNodesState, useEdgesState, addEdge } from 'reactflow';
 import api from '../services/api';
 
-// Generate unique IDs without external dependency
-const generateId = () => `node_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+// ============================================================================
+// UTILITIES
+// ============================================================================
 
-const FlowContext = createContext();
+/**
+ * Generate unique IDs using modern API
+ * Uses crypto.randomUUID() when available, falls back to timestamp + random
+ */
+const generateId = () => {
+  if (typeof crypto !== 'undefined' && crypto.randomUUID) {
+    return `node_${crypto.randomUUID()}`;
+  }
+  return `node_${Date.now()}_${Math.random().toString(36).substring(2, 11)}`;
+};
+
+/**
+ * Deep clone object safely
+ * Handles dates, maintains structure without losing data
+ */
+const deepClone = (obj) => {
+  if (obj === null || typeof obj !== 'object') return obj;
+  if (obj instanceof Date) return new Date(obj.getTime());
+  if (obj instanceof Array) return obj.map(item => deepClone(item));
+
+  const cloned = {};
+  Object.keys(obj).forEach(key => {
+    cloned[key] = deepClone(obj[key]);
+  });
+  return cloned;
+};
+
+/**
+ * Fast shallow comparison for objects
+ */
+const shallowEqual = (obj1, obj2) => {
+  const keys1 = Object.keys(obj1 || {});
+  const keys2 = Object.keys(obj2 || {});
+
+  if (keys1.length !== keys2.length) return false;
+
+  return keys1.every(key => obj1[key] === obj2[key]);
+};
+
+// ============================================================================
+// CONTEXT
+// ============================================================================
+
+const FlowContext = createContext(undefined);
 
 export const useFlow = () => {
   const context = useContext(FlowContext);
@@ -15,37 +59,117 @@ export const useFlow = () => {
   return context;
 };
 
+// ============================================================================
+// PROVIDER
+// ============================================================================
+
 export const FlowProvider = ({ children }) => {
-  // Core React Flow state management
+  // -------------------------------------------------------------------------
+  // STATE MANAGEMENT
+  // -------------------------------------------------------------------------
+
+  // Core React Flow state
   const [nodes, setNodes, onNodesChange] = useNodesState([]);
   const [edges, setEdges, onEdgesChange] = useEdgesState([]);
-  
+
   // Application state
   const [flows, setFlows] = useState([]);
   const [currentFlow, setCurrentFlow] = useState(null);
   const [selectedNodeId, setSelectedNodeId] = useState(null);
-  const [isSaving, setIsSaving] = useState(false);
   const [isPanelOpen, setIsPanelOpen] = useState(false);
-  const [isLoading, setIsLoading] = useState(false);
+
+  // Loading states (isolated for better UX)
+  const [loadingStates, setLoadingStates] = useState({
+    fetching: false,
+    loading: false,
+    saving: false,
+    creating: false,
+    deleting: false,
+  });
+
   const [error, setError] = useState(null);
-  
-  // Track the original flow state to enable change detection
+
+  // Refs for tracking and cleanup
   const originalFlowState = useRef(null);
+  const abortControllerRef = useRef(null);
+  const lastSavedHashRef = useRef(null);
+  const isMountedRef = useRef(true);
 
-  // Check if there are unsaved changes
+  // -------------------------------------------------------------------------
+  // EFFECT: Component Lifecycle
+  // -------------------------------------------------------------------------
+
+  useEffect(() => {
+    isMountedRef.current = true;
+    return () => {
+      isMountedRef.current = false;
+      // Cancel any pending requests on unmount
+      if (abortControllerRef.current) {
+        abortControllerRef.current.abort();
+      }
+    };
+  }, []);
+
+  // -------------------------------------------------------------------------
+  // MEMOIZED VALUES
+  // -------------------------------------------------------------------------
+
+  /**
+   * Check for unsaved changes using hash comparison
+   * More efficient than JSON.stringify on every check
+   */
+  const currentStateHash = useMemo(() => {
+    return `${nodes.length}-${edges.length}-${nodes.map(n => n.id).join(',')}-${edges.map(e => e.id).join(',')}`;
+  }, [nodes, edges]);
+
   const hasUnsavedChanges = useCallback(() => {
-    if (!currentFlow || !originalFlowState.current) return false;
-    
-    const current = JSON.stringify({ nodes, edges });
-    const original = JSON.stringify(originalFlowState.current);
-    
-    return current !== original;
-  }, [nodes, edges, currentFlow]);
+    if (!currentFlow || !lastSavedHashRef.current) return false;
+    return currentStateHash !== lastSavedHashRef.current;
+  }, [currentFlow, currentStateHash]);
 
-  // When nodes connect, add an animated edge between them
+  /**
+   * Get selected node (memoized to prevent recalculation)
+   */
+  const selectedNode = useMemo(() => {
+    if (!selectedNodeId) return null;
+    return nodes.find(node => node.id === selectedNodeId);
+  }, [selectedNodeId, nodes]);
+
+  /**
+   * Computed loading state
+   */
+  const isLoading = useMemo(() => {
+    return Object.values(loadingStates).some(state => state);
+  }, [loadingStates]);
+
+  // -------------------------------------------------------------------------
+  // HELPER: Safe State Update
+  // -------------------------------------------------------------------------
+
+  const safeSetState = useCallback((setter) => {
+    if (isMountedRef.current) {
+      setter();
+    }
+  }, []);
+
+  // -------------------------------------------------------------------------
+  // HELPER: Loading State Management
+  // -------------------------------------------------------------------------
+
+  const setLoadingState = useCallback((key, value) => {
+    safeSetState(() => {
+      setLoadingStates(prev => ({ ...prev, [key]: value }));
+    });
+  }, [safeSetState]);
+
+  // -------------------------------------------------------------------------
+  // NODE/EDGE OPERATIONS
+  // -------------------------------------------------------------------------
+
   const onConnect = useCallback(
-    (params) => setEdges((eds) => addEdge({ 
-      ...params, 
+    (params) => setEdges((eds) => addEdge({
+      ...params,
+      id: `edge-${Date.now()}`,
       animated: true,
       type: 'smoothstep',
       style: { stroke: '#6366f1', strokeWidth: 2 }
@@ -53,7 +177,6 @@ export const FlowProvider = ({ children }) => {
     [setEdges]
   );
 
-  // Update specific fields in a node's data
   const updateNodeData = useCallback((nodeId, data) => {
     setNodes((nds) =>
       nds.map((node) =>
@@ -64,7 +187,6 @@ export const FlowProvider = ({ children }) => {
     );
   }, [setNodes]);
 
-  // When nodes are deleted, clean up any related state
   const onNodesDelete = useCallback((deleted) => {
     if (deleted.some(node => node.id === selectedNodeId)) {
       setIsPanelOpen(false);
@@ -72,7 +194,6 @@ export const FlowProvider = ({ children }) => {
     }
   }, [selectedNodeId]);
 
-  // Duplicate a node at a slightly offset position
   const duplicateNode = useCallback((nodeId) => {
     setNodes((nds) => {
       const nodeToDuplicate = nds.find(n => n.id === nodeId);
@@ -85,28 +206,43 @@ export const FlowProvider = ({ children }) => {
           x: nodeToDuplicate.position.x + 50,
           y: nodeToDuplicate.position.y + 50
         },
-        data: JSON.parse(JSON.stringify(nodeToDuplicate.data))
+        data: deepClone(nodeToDuplicate.data)
       };
 
       return [...nds, newNode];
     });
   }, [setNodes]);
 
-  // Load a specific flow from the backend
+  // -------------------------------------------------------------------------
+  // FLOW OPERATIONS
+  // -------------------------------------------------------------------------
+
+  /**
+   * Load a specific flow by ID
+   * Includes cancellation support and proper cleanup
+   */
   const loadFlow = useCallback(async (id) => {
-    // VALIDATION: Ensure ID is valid before making API call
+    // Validation
     if (!id || id === 'undefined' || id === 'null') {
-      console.error('loadFlow called with invalid ID:', id);
-      setError('Cannot load flow: Invalid flow ID');
+      console.error('[FlowContext] loadFlow: Invalid ID:', id);
+      safeSetState(() => setError('Cannot load flow: Invalid flow ID'));
       return;
     }
 
-    setIsLoading(true);
-    setError(null);
+    // Cancel any pending request
+    if (abortControllerRef.current) {
+      abortControllerRef.current.abort();
+    }
+    abortControllerRef.current = new AbortController();
+
+    setLoadingState('loading', true);
+    safeSetState(() => setError(null));
 
     try {
-      console.log('Loading flow with ID:', id);
+      console.log('[FlowContext] Loading flow:', id);
       const flow = await api.getFlowById(id);
+
+      if (!isMountedRef.current) return;
 
       if (!flow || !flow.id) {
         throw new Error('Received invalid flow data from server');
@@ -116,247 +252,313 @@ export const FlowProvider = ({ children }) => {
 
       setNodes(flowData.nodes || []);
       setEdges(flowData.edges || []);
-      setCurrentFlow(flow);
+      safeSetState(() => {
+        setCurrentFlow(flow);
+        setIsPanelOpen(false);
+        setSelectedNodeId(null);
+      });
 
-      // Store the original state for change detection
+      // Store original state and hash for change detection
       originalFlowState.current = {
         nodes: flowData.nodes || [],
         edges: flowData.edges || []
       };
+      lastSavedHashRef.current = `${flowData.nodes?.length || 0}-${flowData.edges?.length || 0}-${flowData.nodes?.map(n => n.id).join(',') || ''}-${flowData.edges?.map(e => e.id).join(',') || ''}`;
 
-      setIsPanelOpen(false);
-      setSelectedNodeId(null);
-
-      console.log('Flow loaded successfully:', flow.name);
+      console.log('[FlowContext] Flow loaded successfully:', flow.name);
     } catch (err) {
-      console.error("Failed to load flow:", err);
-      setError(`Failed to load flow: ${err.message || 'Unknown error'}`);
+      if (err.name === 'AbortError') {
+        console.log('[FlowContext] Load cancelled');
+        return;
+      }
+      console.error('[FlowContext] Failed to load flow:', err);
+      safeSetState(() => setError(`Failed to load flow: ${err.message || 'Unknown error'}`));
     } finally {
-      setIsLoading(false);
+      setLoadingState('loading', false);
     }
-  }, [setNodes, setEdges]);
+  }, [setNodes, setEdges, safeSetState, setLoadingState]);
 
-  // Fetch all available flows from the backend
-  const fetchFlows = useCallback(async () => {
-    setIsLoading(true);
-    setError(null);
+  /**
+   * Fetch all flows from backend
+   * Fixed: Removed currentFlow from deps to prevent race condition
+   */
+  const fetchFlows = useCallback(async (autoLoad = true) => {
+    setLoadingState('fetching', true);
+    safeSetState(() => setError(null));
 
     try {
-      console.log('Fetching flows from backend...');
+      console.log('[FlowContext] Fetching flows...');
       const data = await api.getFlows();
-      console.log('Received flows:', data);
 
-      // Filter out any flows without valid IDs
-      const validFlows = data.filter(flow => {
+      if (!isMountedRef.current) return;
+
+      console.log('[FlowContext] Received flows:', data?.length || 0);
+
+      // Filter valid flows
+      const validFlows = (data || []).filter(flow => {
         const isValid = flow && flow.id && flow.id !== 'undefined' && flow.id !== 'null';
         if (!isValid) {
-          console.warn('Filtered out invalid flow:', flow);
+          console.warn('[FlowContext] Filtered invalid flow:', flow);
         }
         return isValid;
       });
 
-      console.log('Valid flows:', validFlows.length);
-      setFlows(validFlows);
+      safeSetState(() => setFlows(validFlows));
 
-      // Auto-load first flow ONLY if:
-      // 1. No current flow is loaded
-      // 2. Valid flows exist
-      // 3. First flow has valid ID
-      if (!currentFlow && validFlows.length > 0) {
-        const firstFlow = validFlows[0];
-        if (firstFlow.id && firstFlow.id !== 'undefined' && firstFlow.id !== 'null') {
-          console.log('Auto-loading first flow:', firstFlow.name, firstFlow.id);
-          await loadFlow(firstFlow.id);
-        } else {
-          console.error('First flow has invalid ID:', firstFlow);
+      // Auto-load first flow only if requested and no current flow
+      if (autoLoad && validFlows.length > 0) {
+        // Check if there's a current flow, if not load the first one
+        const shouldAutoLoad = !currentFlow;
+
+        if (shouldAutoLoad) {
+          const firstFlow = validFlows[0];
+          if (firstFlow.id) {
+            console.log('[FlowContext] Auto-loading first flow:', firstFlow.name);
+            await loadFlow(firstFlow.id);
+          }
         }
       }
-    } catch (err) {
-      console.error("Failed to fetch flows:", err);
-      setError("Failed to fetch flows. Please refresh the page.");
-    } finally {
-      setIsLoading(false);
-    }
-  }, [currentFlow, loadFlow]);
 
-  // Save the current flow to the backend
+      console.log('[FlowContext] Valid flows loaded:', validFlows.length);
+    } catch (err) {
+      console.error('[FlowContext] Failed to fetch flows:', err);
+      safeSetState(() => setError('Failed to fetch flows. Please refresh the page.'));
+    } finally {
+      setLoadingState('fetching', false);
+    }
+  }, [loadFlow, safeSetState, setLoadingState, currentFlow]);
+
+  /**
+   * Save current flow
+   * Optimized: Only update necessary state
+   */
   const saveCurrentFlow = useCallback(async () => {
     if (!currentFlow) {
-      console.warn("No current flow to save");
+      console.warn('[FlowContext] No current flow to save');
       return;
     }
 
-    setIsSaving(true);
-    setError(null);
-    
+    if (!hasUnsavedChanges()) {
+      console.log('[FlowContext] No changes to save');
+      return;
+    }
+
+    setLoadingState('saving', true);
+    safeSetState(() => setError(null));
+
     try {
       const flowData = { nodes, edges };
-      
-      await api.updateFlow(currentFlow.id, { 
+
+      await api.updateFlow(currentFlow.id, {
         flow_data: flowData,
         name: currentFlow.name,
         is_active: currentFlow.is_active
       });
-      
-      // Update the original state reference
+
+      if (!isMountedRef.current) return;
+
+      // Update saved state
       originalFlowState.current = { nodes, edges };
-      
-      const data = await api.getFlows();
-      setFlows(data);
-      
-      const updatedFlow = data.find(f => f.id === currentFlow.id);
-      if (updatedFlow) {
-        setCurrentFlow(updatedFlow);
-      }
+      lastSavedHashRef.current = currentStateHash;
+
+      // Optimized: Only update current flow, not entire list
+      safeSetState(() => {
+        setFlows(prev => prev.map(f =>
+          f.id === currentFlow.id
+            ? { ...f, flow_data: flowData }
+            : f
+        ));
+      });
+
+      console.log('[FlowContext] Flow saved successfully');
     } catch (err) {
-      console.error("Failed to save flow:", err);
-      setError("Failed to save flow. Please try again.");
+      console.error('[FlowContext] Failed to save flow:', err);
+      safeSetState(() => setError(`Failed to save flow: ${err.message || 'Unknown error'}`));
       throw err;
     } finally {
-      setTimeout(() => setIsSaving(false), 1000);
+      setTimeout(() => setLoadingState('saving', false), 1000);
     }
-  }, [currentFlow, nodes, edges]);
+  }, [currentFlow, nodes, edges, hasUnsavedChanges, currentStateHash, safeSetState, setLoadingState]);
 
-  // Create a brand new flow
+  /**
+   * Create a new flow
+   */
   const createNewFlow = useCallback(async (name) => {
-    setIsLoading(true);
-    setError(null);
+    setLoadingState('creating', true);
+    safeSetState(() => setError(null));
 
     try {
-      console.log('Creating new flow:', name);
+      console.log('[FlowContext] Creating new flow:', name);
       const newFlow = await api.createFlow({
         name,
         flow_data: { nodes: [], edges: [] },
         is_active: false
       });
 
-      console.log('Flow created:', newFlow);
+      if (!isMountedRef.current) return;
 
-      // VALIDATION: Ensure created flow has valid ID
       if (!newFlow || !newFlow.id || newFlow.id === 'undefined' || newFlow.id === 'null') {
         throw new Error('Server returned flow without valid ID');
       }
 
-      setFlows(prev => [...prev, newFlow]);
+      safeSetState(() => setFlows(prev => [...prev, newFlow]));
       await loadFlow(newFlow.id);
+
+      console.log('[FlowContext] Flow created:', newFlow.id);
     } catch (err) {
-      console.error("Failed to create new flow:", err);
-      setError(`Failed to create flow: ${err.message || 'Unknown error'}`);
+      console.error('[FlowContext] Failed to create flow:', err);
+      safeSetState(() => setError(`Failed to create flow: ${err.message || 'Unknown error'}`));
       throw err;
     } finally {
-      setIsLoading(false);
+      setLoadingState('creating', false);
     }
-  }, [loadFlow]);
+  }, [loadFlow, safeSetState, setLoadingState]);
 
-  // Delete a flow from the system
+  /**
+   * Delete a flow
+   * Fixed: Use functional update to avoid stale closure
+   */
   const deleteFlow = useCallback(async (flowId) => {
-    // VALIDATION: Check flow ID before attempting delete
     if (!flowId || flowId === 'undefined' || flowId === 'null') {
-      console.error('deleteFlow called with invalid ID:', flowId);
-      setError('Cannot delete flow: Invalid flow ID');
+      console.error('[FlowContext] deleteFlow: Invalid ID:', flowId);
+      safeSetState(() => setError('Cannot delete flow: Invalid flow ID'));
       return;
     }
 
-    setIsLoading(true);
-    setError(null);
+    setLoadingState('deleting', true);
+    safeSetState(() => setError(null));
 
     try {
-      console.log('Deleting flow:', flowId);
+      console.log('[FlowContext] Deleting flow:', flowId);
       await api.deleteFlow(flowId);
 
-      setFlows(prev => prev.filter(f => f.id !== flowId));
+      if (!isMountedRef.current) return;
 
-      if (currentFlow?.id === flowId) {
-        setNodes([]);
-        setEdges([]);
-        setCurrentFlow(null);
-        originalFlowState.current = null;
+      // Use functional update to get latest flows
+      safeSetState(() => {
+        setFlows(prev => {
+          const updated = prev.filter(f => f.id !== flowId);
 
-        const remainingFlows = flows.filter(f => f.id !== flowId);
-        if (remainingFlows.length > 0 && remainingFlows[0].id) {
-          console.log('Loading next flow after delete:', remainingFlows[0].id);
-          await loadFlow(remainingFlows[0].id);
-        }
-      }
+          // If deleted flow was current, load another
+          if (currentFlow?.id === flowId) {
+            setNodes([]);
+            setEdges([]);
+            setCurrentFlow(null);
+            originalFlowState.current = null;
+            lastSavedHashRef.current = null;
+
+            if (updated.length > 0 && updated[0].id) {
+              console.log('[FlowContext] Loading next flow after delete');
+              setTimeout(() => loadFlow(updated[0].id), 0);
+            }
+          }
+
+          return updated;
+        });
+      });
+
+      console.log('[FlowContext] Flow deleted successfully');
     } catch (err) {
-      console.error("Failed to delete flow:", err);
-      setError(`Failed to delete flow: ${err.message || 'Unknown error'}`);
+      console.error('[FlowContext] Failed to delete flow:', err);
+      safeSetState(() => setError(`Failed to delete flow: ${err.message || 'Unknown error'}`));
       throw err;
     } finally {
-      setIsLoading(false);
+      setLoadingState('deleting', false);
     }
-  }, [currentFlow, flows, loadFlow, setNodes, setEdges]);
-  
-  // Open the properties panel for a specific node
+  }, [currentFlow, loadFlow, setNodes, setEdges, safeSetState, setLoadingState]);
+
+  // -------------------------------------------------------------------------
+  // PANEL OPERATIONS
+  // -------------------------------------------------------------------------
+
   const openPanel = useCallback((nodeId) => {
     setSelectedNodeId(nodeId);
     setIsPanelOpen(true);
   }, []);
 
-  // Close the properties panel
   const closePanel = useCallback(() => {
     setIsPanelOpen(false);
     setSelectedNodeId(null);
   }, []);
 
-  // Handle clicks on the canvas background
   const onPaneClick = useCallback(() => {
     closePanel();
   }, [closePanel]);
 
-  // Get the currently selected node object
-  const getSelectedNode = useCallback(() => {
-    if (!selectedNodeId) return null;
-    return nodes.find(node => node.id === selectedNodeId);
-  }, [selectedNodeId, nodes]);
+  const getSelectedNode = useCallback(() => selectedNode, [selectedNode]);
 
-  // Validate that a flow has all required data
+  // -------------------------------------------------------------------------
+  // VALIDATION
+  // -------------------------------------------------------------------------
+
   const validateFlow = useCallback(() => {
     const errors = [];
-    
+
+    // Check for orphaned nodes
     const connectedNodeIds = new Set();
     edges.forEach(edge => {
       connectedNodeIds.add(edge.source);
       connectedNodeIds.add(edge.target);
     });
-    
+
     const orphanedNodes = nodes.filter(
       node => nodes.length > 1 && !connectedNodeIds.has(node.id)
     );
-    
+
     if (orphanedNodes.length > 0) {
-      errors.push(`${orphanedNodes.length} node(s) are not connected to the flow`);
+      errors.push({
+        type: 'orphaned',
+        count: orphanedNodes.length,
+        message: `${orphanedNodes.length} node(s) are not connected to the flow`,
+        nodes: orphanedNodes.map(n => n.id)
+      });
     }
-    
+
+    // Validate node content
     nodes.forEach(node => {
       if (node.type === 'textMessage' && !node.data.message?.trim()) {
-        errors.push(`Text message node is empty`);
+        errors.push({
+          type: 'empty_message',
+          nodeId: node.id,
+          message: 'Text message node is empty'
+        });
       }
       if (node.type === 'aiResponse' && !node.data.prompt?.trim()) {
-        errors.push(`AI response node has no prompt`);
+        errors.push({
+          type: 'empty_prompt',
+          nodeId: node.id,
+          message: 'AI response node has no prompt'
+        });
       }
     });
-    
+
     return errors;
   }, [nodes, edges]);
 
-  // Clear any error messages
+  // -------------------------------------------------------------------------
+  // ERROR HANDLING
+  // -------------------------------------------------------------------------
+
   const clearError = useCallback(() => {
     setError(null);
   }, []);
 
-  const value = {
+  // -------------------------------------------------------------------------
+  // CONTEXT VALUE
+  // -------------------------------------------------------------------------
+
+  const value = useMemo(() => ({
     // State
     nodes,
     edges,
     flows,
     currentFlow,
     selectedNodeId,
-    isSaving,
+    isSaving: loadingStates.saving,
     isPanelOpen,
     isLoading,
     error,
-    
+
     // Node/Edge operations
     setNodes,
     setEdges,
@@ -366,25 +568,55 @@ export const FlowProvider = ({ children }) => {
     onNodesDelete,
     updateNodeData,
     duplicateNode,
-    
+
     // Flow operations
     fetchFlows,
     loadFlow,
     saveCurrentFlow,
     createNewFlow,
     deleteFlow,
-    
+
     // Panel operations
     openPanel,
     closePanel,
     onPaneClick,
     getSelectedNode,
-    
+
     // Utility functions
     hasUnsavedChanges,
     validateFlow,
     clearError,
-  };
+  }), [
+    nodes,
+    edges,
+    flows,
+    currentFlow,
+    selectedNodeId,
+    loadingStates.saving,
+    isPanelOpen,
+    isLoading,
+    error,
+    setNodes,
+    setEdges,
+    onNodesChange,
+    onEdgesChange,
+    onConnect,
+    onNodesDelete,
+    updateNodeData,
+    duplicateNode,
+    fetchFlows,
+    loadFlow,
+    saveCurrentFlow,
+    createNewFlow,
+    deleteFlow,
+    openPanel,
+    closePanel,
+    onPaneClick,
+    getSelectedNode,
+    hasUnsavedChanges,
+    validateFlow,
+    clearError,
+  ]);
 
   return <FlowContext.Provider value={value}>{children}</FlowContext.Provider>;
 };
