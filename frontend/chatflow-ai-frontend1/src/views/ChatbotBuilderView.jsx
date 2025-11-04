@@ -1,4 +1,4 @@
-import { useEffect, useRef, useCallback, useState } from 'react';
+import { useEffect, useRef, useCallback, useState, useMemo } from 'react';
 import ReactFlow, { Background, Controls, MiniMap, Panel } from 'reactflow';
 import { useFlow } from '../context/FlowContext';
 import DndSidebar from '../components/builder/DndSidebar';
@@ -9,8 +9,9 @@ import AiResponseNode from '../components/builder/nodes/AiResponseNode';
 import { ZoomIn, ZoomOut, Maximize2, Save, AlertCircle } from 'lucide-react';
 import 'reactflow/dist/style.css';
 
-// Define our custom node types
-const nodeTypes = {
+// Define our custom node types outside component to avoid recreation
+// This object is stable and doesn't need to be recreated on every render
+const NODE_TYPES = {
   textMessage: TextMessageNode,
   aiResponse: AiResponseNode,
 };
@@ -34,6 +35,15 @@ export const ChatbotBuilderView = () => {
   const reactFlowWrapper = useRef(null);
   const reactFlowInstance = useRef(null);
   const [isDropping, setIsDropping] = useState(false);
+
+  // Refs to avoid re-registering event listeners
+  const saveCurrentFlowRef = useRef(saveCurrentFlow);
+  const handleFitViewRef = useRef(null);
+
+  // Keep refs updated
+  useEffect(() => {
+    saveCurrentFlowRef.current = saveCurrentFlow;
+  }, [saveCurrentFlow]);
 
   // Fetch flows when component mounts
   useEffect(() => {
@@ -126,42 +136,54 @@ export const ChatbotBuilderView = () => {
 
   const handleFitView = useCallback(() => {
     if (reactFlowInstance.current) {
-      reactFlowInstance.current.fitView({ 
-        padding: 0.2, 
-        duration: 300 
+      reactFlowInstance.current.fitView({
+        padding: 0.2,
+        duration: 300
       });
     }
   }, []);
 
+  // Update ref when handleFitView changes
+  useEffect(() => {
+    handleFitViewRef.current = handleFitView;
+  }, [handleFitView]);
+
   // Keyboard shortcuts for common actions
+  // Using refs to avoid re-registering event listener on every render
   useEffect(() => {
     const handleKeyDown = (event) => {
       if ((event.metaKey || event.ctrlKey) && event.key === 's') {
         event.preventDefault();
-        saveCurrentFlow();
+        if (saveCurrentFlowRef.current) {
+          saveCurrentFlowRef.current();
+        }
       }
       if ((event.metaKey || event.ctrlKey) && event.key === '0') {
         event.preventDefault();
-        handleFitView();
+        if (handleFitViewRef.current) {
+          handleFitViewRef.current();
+        }
       }
     };
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [saveCurrentFlow, handleFitView]);
+  }, []); // Empty deps - event listener registered once, refs keep it updated
 
-  // Warn user about unsaved changes before leaving
-  useEffect(() => {
-    const handleBeforeUnload = (event) => {
-      if (hasUnsavedChanges && hasUnsavedChanges()) {
-        event.preventDefault();
-        event.returnValue = '';
-      }
-    };
+  // Note: Unsaved changes warning on beforeunload is now handled in FlowContext
+  // to avoid duplicate event listeners and keep the logic centralized
 
-    window.addEventListener('beforeunload', handleBeforeUnload);
-    return () => window.removeEventListener('beforeunload', handleBeforeUnload);
-  }, [hasUnsavedChanges]);
+  // Memoize MiniMap node color function to avoid recreation on every render
+  const minimapNodeColor = useCallback((node) => {
+    switch (node.type) {
+      case 'textMessage':
+        return '#818cf8';
+      case 'aiResponse':
+        return '#34d399';
+      default:
+        return '#94a3b8';
+    }
+  }, []);
 
   return (
     <div className="flex h-full w-full bg-gray-50">
@@ -203,7 +225,7 @@ export const ChatbotBuilderView = () => {
             onNodeClick={onNodeClick}
             onDragOver={handleDragOver}
             onDrop={handleDrop}
-            nodeTypes={nodeTypes}
+            nodeTypes={NODE_TYPES}
             onInit={(instance) => (reactFlowInstance.current = instance)}
             fitView
             className="bg-gray-50"
@@ -229,16 +251,7 @@ export const ChatbotBuilderView = () => {
             />
             
             <MiniMap
-              nodeColor={(node) => {
-                switch (node.type) {
-                  case 'textMessage':
-                    return '#818cf8';
-                  case 'aiResponse':
-                    return '#34d399';
-                  default:
-                    return '#94a3b8';
-                }
-              }}
+              nodeColor={minimapNodeColor}
               className="bg-white rounded-lg shadow-lg border border-gray-200"
               maskColor="rgb(0, 0, 0, 0.1)"
             />

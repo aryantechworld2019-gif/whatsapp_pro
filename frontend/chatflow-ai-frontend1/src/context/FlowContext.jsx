@@ -110,6 +110,26 @@ export const FlowProvider = ({ children }) => {
     };
   }, []);
 
+  /**
+   * Warn user before closing/refreshing browser with unsaved changes
+   */
+  useEffect(() => {
+    const handleBeforeUnload = (e) => {
+      if (hasUnsavedChanges()) {
+        e.preventDefault();
+        // Chrome requires returnValue to be set
+        e.returnValue = 'You have unsaved changes. Are you sure you want to leave?';
+        return e.returnValue;
+      }
+    };
+
+    window.addEventListener('beforeunload', handleBeforeUnload);
+
+    return () => {
+      window.removeEventListener('beforeunload', handleBeforeUnload);
+    };
+  }, [hasUnsavedChanges]);
+
   // -------------------------------------------------------------------------
   // MEMOIZED VALUES
   // -------------------------------------------------------------------------
@@ -214,14 +234,39 @@ export const FlowProvider = ({ children }) => {
   }, [setNodes]);
 
   // -------------------------------------------------------------------------
+  // UNSAVED CHANGES WARNING
+  // -------------------------------------------------------------------------
+
+  /**
+   * Check for unsaved changes and warn user if necessary
+   * Returns true if safe to proceed, false if user cancelled
+   */
+  const checkUnsavedChanges = useCallback(() => {
+    if (!hasUnsavedChanges()) return true;
+
+    const message =
+      'You have unsaved changes in the current flow.\n\n' +
+      'If you continue, your changes will be lost.\n\n' +
+      'Do you want to continue without saving?';
+
+    return window.confirm(message);
+  }, [hasUnsavedChanges]);
+
+  // -------------------------------------------------------------------------
   // FLOW OPERATIONS
   // -------------------------------------------------------------------------
 
   /**
    * Load a specific flow by ID
    * Includes cancellation support and proper cleanup
+   * Now checks for unsaved changes before switching
    */
   const loadFlow = useCallback(async (id) => {
+    // Check for unsaved changes before switching flows
+    if (currentFlow && !checkUnsavedChanges()) {
+      console.log('[FlowContext] Load cancelled by user (unsaved changes)');
+      return;
+    }
     // Validation
     if (!id || id === 'undefined' || id === 'null') {
       console.error('[FlowContext] loadFlow: Invalid ID:', id);
@@ -276,7 +321,7 @@ export const FlowProvider = ({ children }) => {
     } finally {
       setLoadingState('loading', false);
     }
-  }, [setNodes, setEdges, safeSetState, setLoadingState]);
+  }, [setNodes, setEdges, safeSetState, setLoadingState, currentFlow, checkUnsavedChanges]);
 
   /**
    * Fetch all flows from backend
@@ -382,8 +427,15 @@ export const FlowProvider = ({ children }) => {
 
   /**
    * Create a new flow
+   * Now checks for unsaved changes before creating
    */
   const createNewFlow = useCallback(async (name) => {
+    // Check for unsaved changes before creating new flow
+    if (currentFlow && !checkUnsavedChanges()) {
+      console.log('[FlowContext] Create cancelled by user (unsaved changes)');
+      throw new Error('Cancelled by user');
+    }
+
     setLoadingState('creating', true);
     safeSetState(() => setError(null));
 
@@ -412,7 +464,7 @@ export const FlowProvider = ({ children }) => {
     } finally {
       setLoadingState('creating', false);
     }
-  }, [loadFlow, safeSetState, setLoadingState]);
+  }, [loadFlow, safeSetState, setLoadingState, currentFlow, checkUnsavedChanges]);
 
   /**
    * Delete a flow

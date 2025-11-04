@@ -9,6 +9,7 @@ export const FlowSelector = () => {
   const [newFlowName, setNewFlowName] = useState('');
   const [validationError, setValidationError] = useState('');
   const [showSavedState, setShowSavedState] = useState(false);
+  const [isCreating, setIsCreating] = useState(false);
 
   // Auto-hide the "Saved!" state after 2 seconds to give clear feedback
   // without permanently changing the button appearance
@@ -40,7 +41,7 @@ export const FlowSelector = () => {
     return '';
   };
 
-  const handleCreateNew = () => {
+  const handleCreateNew = async () => {
     const error = validateFlowName(newFlowName);
     if (error) {
       setValidationError(error);
@@ -48,10 +49,20 @@ export const FlowSelector = () => {
     }
 
     // All validation passed, create the flow
-    createNewFlow(newFlowName.trim());
-    setNewFlowName('');
-    setValidationError('');
-    setIsModalOpen(false);
+    setIsCreating(true);
+    try {
+      await createNewFlow(newFlowName.trim());
+      // Only close modal and reset after successful creation
+      setNewFlowName('');
+      setValidationError('');
+      setIsModalOpen(false);
+    } catch (err) {
+      // Show error to user
+      setValidationError(err.message || 'Failed to create flow. Please try again.');
+      console.error('[FlowSelector] Failed to create flow:', err);
+    } finally {
+      setIsCreating(false);
+    }
   };
 
   // Clear validation errors when user types to give immediate feedback
@@ -285,10 +296,20 @@ export const FlowSelector = () => {
                     <button
                       type="button"
                       onClick={handleCreateNew}
-                      disabled={!newFlowName.trim() || newFlowName.trim().length < 3}
-                      className="px-4 py-2 text-sm font-medium text-white bg-indigo-600 rounded-lg shadow-sm hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-indigo-500 disabled:opacity-50 disabled:cursor-not-allowed transition-colors duration-200"
+                      disabled={!newFlowName.trim() || newFlowName.trim().length < 3 || isCreating}
+                      className="px-4 py-2 text-sm font-medium text-white bg-indigo-600 rounded-lg shadow-sm hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-indigo-500 disabled:opacity-50 disabled:cursor-not-allowed transition-colors duration-200 inline-flex items-center justify-center min-w-[120px]"
                     >
-                      Create Flow
+                      {isCreating ? (
+                        <>
+                          <svg className="animate-spin -ml-1 mr-2 h-4 w-4 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                            <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                            <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                          </svg>
+                          Creating...
+                        </>
+                      ) : (
+                        'Create Flow'
+                      )}
                     </button>
                   </div>
                 </Dialog.Panel>
