@@ -110,26 +110,6 @@ export const FlowProvider = ({ children }) => {
     };
   }, []);
 
-  /**
-   * Warn user before closing/refreshing browser with unsaved changes
-   */
-  useEffect(() => {
-    const handleBeforeUnload = (e) => {
-      if (hasUnsavedChanges()) {
-        e.preventDefault();
-        // Chrome requires returnValue to be set
-        e.returnValue = 'You have unsaved changes. Are you sure you want to leave?';
-        return e.returnValue;
-      }
-    };
-
-    window.addEventListener('beforeunload', handleBeforeUnload);
-
-    return () => {
-      window.removeEventListener('beforeunload', handleBeforeUnload);
-    };
-  }, [hasUnsavedChanges]);
-
   // -------------------------------------------------------------------------
   // MEMOIZED VALUES
   // -------------------------------------------------------------------------
@@ -154,6 +134,31 @@ export const FlowProvider = ({ children }) => {
     if (!selectedNodeId) return null;
     return nodes.find(node => node.id === selectedNodeId);
   }, [selectedNodeId, nodes]);
+
+  // -------------------------------------------------------------------------
+  // EFFECT: Unsaved Changes Warning
+  // -------------------------------------------------------------------------
+
+  /**
+   * Warn user before closing/refreshing browser with unsaved changes
+   * Placed here after hasUnsavedChanges is defined to avoid TDZ error
+   */
+  useEffect(() => {
+    const handleBeforeUnload = (e) => {
+      if (hasUnsavedChanges()) {
+        e.preventDefault();
+        // Chrome requires returnValue to be set
+        e.returnValue = 'You have unsaved changes. Are you sure you want to leave?';
+        return e.returnValue;
+      }
+    };
+
+    window.addEventListener('beforeunload', handleBeforeUnload);
+
+    return () => {
+      window.removeEventListener('beforeunload', handleBeforeUnload);
+    };
+  }, [hasUnsavedChanges]);
 
   /**
    * Computed loading state
